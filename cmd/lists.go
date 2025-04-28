@@ -10,6 +10,7 @@ import (
 	"github.com/epheo/anytype-cli/internal/auth"
 	"github.com/epheo/anytype-cli/internal/client"
 	"github.com/epheo/anytype-cli/internal/output"
+	"github.com/epheo/anytype-cli/internal/spaces"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -23,7 +24,7 @@ var listsCmd = &cobra.Command{
 
 // listsViewsCmd represents the lists views command
 var listsViewsCmd = &cobra.Command{
-	Use:   "views [spaceID] [listID]",
+	Use:   "views [spaceID|spaceName] [listID]",
 	Short: "List views for a list",
 	Long:  `List all available views for the specified list in an Anytype space.`,
 	Args:  cobra.ExactArgs(2),
@@ -33,7 +34,13 @@ var listsViewsCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		spaceID := args[0]
+		spaceIdOrName := args[0]
+		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
+			os.Exit(1)
+		}
+		
 		listID := args[1]
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -80,7 +87,7 @@ var listsViewsCmd = &cobra.Command{
 
 // listsObjectsCmd represents the lists objects command
 var listsObjectsCmd = &cobra.Command{
-	Use:   "objects [spaceID] [listID] [viewID]",
+	Use:   "objects [spaceID|spaceName] [listID] [viewID]",
 	Short: "List objects in a view",
 	Long:  `List all objects in a specific view of a list in an Anytype space.`,
 	Args:  cobra.ExactArgs(3),
@@ -90,7 +97,13 @@ var listsObjectsCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		spaceID := args[0]
+		spaceIdOrName := args[0]
+		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
+			os.Exit(1)
+		}
+		
 		listID := args[1]
 		viewID := args[2]
 
@@ -138,7 +151,7 @@ var listsObjectsCmd = &cobra.Command{
 
 // listsAddCmd represents the lists add command
 var listsAddCmd = &cobra.Command{
-	Use:   "add [spaceID] [listID] [objectIDs...]",
+	Use:   "add [spaceID|spaceName] [listID] [objectIDs...]",
 	Short: "Add objects to a list",
 	Long:  `Add one or more objects to a list in an Anytype space.`,
 	Args:  cobra.MinimumNArgs(3),
@@ -148,7 +161,13 @@ var listsAddCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		spaceID := args[0]
+		spaceIdOrName := args[0]
+		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
+			os.Exit(1)
+		}
+		
 		listID := args[1]
 		objectIDs := args[2:]
 
@@ -156,7 +175,7 @@ var listsAddCmd = &cobra.Command{
 		defer cancel()
 
 		anytypeClient := client.GetClient(cfg)
-		err := anytypeClient.Space(spaceID).List(listID).Objects().Add(ctx, objectIDs)
+		err = anytypeClient.Space(spaceID).List(listID).Objects().Add(ctx, objectIDs)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to add objects to list: %v\n", err)
 			os.Exit(1)
@@ -171,7 +190,7 @@ var listsAddCmd = &cobra.Command{
 
 // listsRemoveCmd represents the lists remove command
 var listsRemoveCmd = &cobra.Command{
-	Use:   "remove [spaceID] [listID] [objectID]",
+	Use:   "remove [spaceID|spaceName] [listID] [objectID]",
 	Short: "Remove an object from a list",
 	Long:  `Remove an object from a list in an Anytype space.`,
 	Args:  cobra.ExactArgs(3),
@@ -181,7 +200,13 @@ var listsRemoveCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		spaceID := args[0]
+		spaceIdOrName := args[0]
+		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
+			os.Exit(1)
+		}
+		
 		listID := args[1]
 		objectID := args[2]
 
@@ -189,7 +214,7 @@ var listsRemoveCmd = &cobra.Command{
 		defer cancel()
 
 		anytypeClient := client.GetClient(cfg)
-		err := anytypeClient.Space(spaceID).List(listID).Object(objectID).Remove(ctx)
+		err = anytypeClient.Space(spaceID).List(listID).Object(objectID).Remove(ctx)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to remove object from list: %v\n", err)
 			os.Exit(1)

@@ -10,6 +10,7 @@ import (
 	"github.com/epheo/anytype-cli/internal/auth"
 	"github.com/epheo/anytype-cli/internal/client"
 	"github.com/epheo/anytype-cli/internal/output"
+	"github.com/epheo/anytype-cli/internal/spaces"
 	"github.com/epheo/anytype-go"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -145,7 +146,7 @@ var spacesCreateCmd = &cobra.Command{
 
 // spacesGetCmd represents the spaces get command
 var spacesGetCmd = &cobra.Command{
-	Use:   "get [spaceID]",
+	Use:   "get [spaceID|spaceName]",
 	Short: "Get details of a specific space",
 	Long:  `Retrieve detailed information about a specific Anytype space.`,
 	Args:  cobra.ExactArgs(1),
@@ -155,7 +156,13 @@ var spacesGetCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		spaceID := args[0]
+		spaceIdOrName := args[0]
+		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
+			os.Exit(1)
+		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 

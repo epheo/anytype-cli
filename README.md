@@ -42,11 +42,18 @@ anytype-cli version
 # List all spaces
 anytype-cli spaces list
 
-# Search for objects
-anytype-cli search --query "important" --space <space-id>
+# All commands accept either space ID or space name
+# The CLI implements a smart resolution algorithm that:
+#  1. Checks if the input matches an exact space ID
+#  2. Looks for an exact case-insensitive name match
+#  3. Looks for a partial name match if there's only one
+#  4. Falls back to treating the input as a space ID
 
-# Create a new page
-anytype-cli objects create <space-id> --name "My New Page" --type "ot-page" --body "# Hello\n\nThis is my new page"
+# Search for objects (using either space ID or space name)
+anytype-cli search --query "important" --space <space-id|space-name>
+
+# Create a new page (using either space ID or space name)
+anytype-cli objects create <space-id|space-name> --name "My New Page" --type "ot-page" --body "# Hello\n\nThis is my new page"
 ```
 
 ## Available Commands

@@ -10,6 +10,7 @@ import (
 	"github.com/epheo/anytype-cli/internal/auth"
 	"github.com/epheo/anytype-cli/internal/client"
 	"github.com/epheo/anytype-cli/internal/output"
+	"github.com/epheo/anytype-cli/internal/spaces"
 	"github.com/epheo/anytype-go"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -50,7 +51,13 @@ var searchCmd = &cobra.Command{
 
 		if searchSpaceID != "" {
 			// Search within a specific space
-			resp, err = anytypeClient.Space(searchSpaceID).Search(ctx, searchReq)
+			// Resolve space ID if it's a name
+			spaceID, spaceErr := spaces.ResolveSpace(cfg, searchSpaceID)
+			if spaceErr != nil {
+				fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", spaceErr)
+				os.Exit(1)
+			}
+			resp, err = anytypeClient.Space(spaceID).Search(ctx, searchReq)
 		} else {
 			// Global search across all spaces
 			resp, err = anytypeClient.Search().Search(ctx, searchReq)
@@ -124,5 +131,13 @@ func init() {
 	searchCmd.Flags().StringSliceVar(&searchTypes, "types", []string{}, "Filter by object types (comma-separated, e.g. 'ot-page,ot-note')")
 	searchCmd.Flags().StringVar(&searchSortProperty, "sort", "", "Property to sort results by (created_date, last_modified_date, last_opened_date, name)")
 	searchCmd.Flags().StringVar(&searchSortDirection, "direction", "desc", "Sort direction (asc or desc)")
-	searchCmd.Flags().StringVar(&searchSpaceID, "space", "", "Limit search to this space ID (default: search all spaces)")
+	searchCmd.Flags().StringVar(&searchSpaceID, "space", "", "Limit search to this space (can be either ID or name, default: search all spaces)")
+
+	// Set up completion functions after config is loaded
+	cobra.OnInitialize(func() {
+		if cfg != nil {
+			spaceCompletion := spaces.GetSpaceCompletionFunc(cfg)
+			searchCmd.RegisterFlagCompletionFunc("space", spaceCompletion)
+		}
+	})
 }

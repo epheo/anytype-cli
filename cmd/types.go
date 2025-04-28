@@ -10,6 +10,7 @@ import (
 	"github.com/epheo/anytype-cli/internal/auth"
 	"github.com/epheo/anytype-cli/internal/client"
 	"github.com/epheo/anytype-cli/internal/output"
+	"github.com/epheo/anytype-cli/internal/spaces"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -23,7 +24,7 @@ var typesCmd = &cobra.Command{
 
 // typesListCmd represents the types list command
 var typesListCmd = &cobra.Command{
-	Use:   "list [spaceID]",
+	Use:   "list [spaceID|spaceName]",
 	Short: "List all object types in a space",
 	Long:  `List all available object types in the specified Anytype space.`,
 	Args:  cobra.ExactArgs(1),
@@ -33,7 +34,13 @@ var typesListCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		spaceID := args[0]
+		spaceIdOrName := args[0]
+		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
+			os.Exit(1)
+		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
@@ -73,7 +80,7 @@ var typesListCmd = &cobra.Command{
 
 // typesGetCmd represents the types get command
 var typesGetCmd = &cobra.Command{
-	Use:   "get [spaceID] [typeID]",
+	Use:   "get [spaceID|spaceName] [typeID]",
 	Short: "Get details of a specific object type",
 	Long:  `Retrieve detailed information about a specific object type in an Anytype space.`,
 	Args:  cobra.ExactArgs(2),
@@ -83,7 +90,13 @@ var typesGetCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		spaceID := args[0]
+		spaceIdOrName := args[0]
+		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
+			os.Exit(1)
+		}
+
 		typeID := args[1]
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -143,7 +156,7 @@ var typesGetCmd = &cobra.Command{
 
 // templatesListCmd represents the templates list command
 var templatesListCmd = &cobra.Command{
-	Use:   "templates [spaceID] [typeID]",
+	Use:   "templates [spaceID|spaceName] [typeID]",
 	Short: "List templates for an object type",
 	Long:  `List all available templates for the specified object type in an Anytype space.`,
 	Args:  cobra.ExactArgs(2),
@@ -153,7 +166,13 @@ var templatesListCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		spaceID := args[0]
+		spaceIdOrName := args[0]
+		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
+			os.Exit(1)
+		}
+
 		typeID := args[1]
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -195,7 +214,7 @@ var templatesListCmd = &cobra.Command{
 
 // templatesGetCmd represents the templates get command
 var templatesGetCmd = &cobra.Command{
-	Use:   "template-get [spaceID] [typeID] [templateID]",
+	Use:   "template-get [spaceID|spaceName] [typeID] [templateID]",
 	Short: "Get details of a specific template",
 	Long:  `Retrieve detailed information about a specific template for an object type.`,
 	Args:  cobra.ExactArgs(3),
@@ -205,7 +224,13 @@ var templatesGetCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		spaceID := args[0]
+		spaceIdOrName := args[0]
+		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
+			os.Exit(1)
+		}
+
 		typeID := args[1]
 		templateID := args[2]
 

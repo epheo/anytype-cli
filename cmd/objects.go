@@ -10,6 +10,7 @@ import (
 	"github.com/epheo/anytype-cli/internal/auth"
 	"github.com/epheo/anytype-cli/internal/client"
 	"github.com/epheo/anytype-cli/internal/output"
+	"github.com/epheo/anytype-cli/internal/spaces"
 	"github.com/epheo/anytype-go"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -24,9 +25,9 @@ var objectsCmd = &cobra.Command{
 
 // objectsListCmd represents the objects list command
 var objectsListCmd = &cobra.Command{
-	Use:   "list [spaceID]",
+	Use:   "list [spaceID|spaceName]",
 	Short: "List objects in a space",
-	Long:  `List all objects available in the specified space.`,
+	Long:  `List all objects available in the specified space using either space ID or name.`,
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		if !auth.IsAuthenticated(cfg) {
@@ -34,7 +35,13 @@ var objectsListCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		spaceID := args[0]
+		spaceIdOrName := args[0]
+		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
+			os.Exit(1)
+		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
@@ -82,7 +89,7 @@ var objectsListCmd = &cobra.Command{
 
 // objectsGetCmd represents the objects get command
 var objectsGetCmd = &cobra.Command{
-	Use:   "get [spaceID] [objectID]",
+	Use:   "get [spaceID|spaceName] [objectID]",
 	Short: "Get details of a specific object",
 	Long:  `Retrieve detailed information about a specific Anytype object.`,
 	Args:  cobra.ExactArgs(2),
@@ -92,7 +99,13 @@ var objectsGetCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		spaceID := args[0]
+		spaceIdOrName := args[0]
+		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
+			os.Exit(1)
+		}
+
 		objectID := args[1]
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -171,7 +184,7 @@ var objectsGetCmd = &cobra.Command{
 
 // objectsCreateCmd represents the objects create command
 var objectsCreateCmd = &cobra.Command{
-	Use:   "create [spaceID]",
+	Use:   "create [spaceID|spaceName]",
 	Short: "Create a new object",
 	Long:  `Create a new object in the specified Anytype space.`,
 	Args:  cobra.ExactArgs(1),
@@ -191,7 +204,12 @@ var objectsCreateCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		spaceID := args[0]
+		spaceIdOrName := args[0]
+		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
+			os.Exit(1)
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
@@ -249,7 +267,7 @@ var objectsCreateCmd = &cobra.Command{
 
 // objectsDeleteCmd represents the objects delete command
 var objectsDeleteCmd = &cobra.Command{
-	Use:   "delete [spaceID] [objectID]",
+	Use:   "delete [spaceID|spaceName] [objectID]",
 	Short: "Delete an object",
 	Long:  `Delete an Anytype object from the specified space.`,
 	Args:  cobra.ExactArgs(2),
@@ -259,7 +277,13 @@ var objectsDeleteCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		spaceID := args[0]
+		spaceIdOrName := args[0]
+		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
+			os.Exit(1)
+		}
+
 		objectID := args[1]
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -296,7 +320,7 @@ var objectsDeleteCmd = &cobra.Command{
 
 // objectsExportCmd represents the objects export command
 var objectsExportCmd = &cobra.Command{
-	Use:   "export [spaceID] [objectID]",
+	Use:   "export [spaceID|spaceName] [objectID]",
 	Short: "Export an object",
 	Long:  `Export an Anytype object in markdown format.`,
 	Args:  cobra.ExactArgs(2),
@@ -306,7 +330,13 @@ var objectsExportCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		spaceID := args[0]
+		spaceIdOrName := args[0]
+		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
+			os.Exit(1)
+		}
+
 		objectID := args[1]
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -349,6 +379,20 @@ func init() {
 	objectsCmd.AddCommand(objectsCreateCmd)
 	objectsCmd.AddCommand(objectsDeleteCmd)
 	objectsCmd.AddCommand(objectsExportCmd)
+
+	// Set up completion functions after config is loaded
+	// This is added to the OnInitialize pipeline
+	cobra.OnInitialize(func() {
+		if cfg != nil {
+			spaceCompletion := spaces.GetSpaceCompletionFunc(cfg)
+			// Add space completion to commands
+			objectsListCmd.ValidArgsFunction = spaceCompletion
+			objectsGetCmd.ValidArgsFunction = spaceCompletion
+			objectsCreateCmd.ValidArgsFunction = spaceCompletion
+			objectsDeleteCmd.ValidArgsFunction = spaceCompletion
+			objectsExportCmd.ValidArgsFunction = spaceCompletion
+		}
+	})
 
 	// Flags for create command
 	objectsCreateCmd.Flags().StringVar(&objectName, "name", "", "Name for the new object (required)")
