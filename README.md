@@ -1,6 +1,6 @@
 # Anytype CLI
 
-A comprehensive command-line interface for interacting with [Anytype](https://anytype.io/) through their local API.
+A simple command-line interface for interacting with [Anytype](https://anytype.io/), enabling full management of spaces, objects, types, and more.
 
 ## Overview
 
@@ -53,12 +53,12 @@ anytype-cli objects create <space-id> --name "My New Page" --type "ot-page" --bo
 
 ### Global Options
 
-- `--base-url`: Anytype API base URL (default: http://localhost:31009)
+- `--base-url`: Anytype API base URL (default: <http://localhost:31009>)
 - `--config`: Custom config file location
 - `--output`, `-o`: Output format (table, json, yaml)
 - `--verbose`, `-v`: Enable verbose output
 
-### Authentication
+### Authentication Command
 
 - `auth`: Authenticate with Anytype
   - `--force`: Force re-authentication
