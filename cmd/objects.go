@@ -61,16 +61,20 @@ var objectsListCmd = &cobra.Command{
 			}
 			fmt.Println(string(yamlOutput))
 		default:
-			// Table format
-			fmt.Println("OBJECT ID                             NAME                  TYPE           LAYOUT")
-			fmt.Println("-----------------------------------  --------------------  -------------  -------------")
+			// Table format with dynamic column widths
+			table := output.NewTable([]string{"OBJECT ID", "NAME", "TYPE", "LAYOUT"})
+			// Don't truncate OBJECT ID as it's used for command line arguments
+			table.SetColumnWidth(1, 30)
+			table.SetColumnTruncate(1, true) // NAME column
+			table.SetColumnWidth(2, 20)
+			table.SetColumnTruncate(2, true) // TYPE column
+			table.SetColumnWidth(3, 20)
+			table.SetColumnTruncate(3, true) // LAYOUT column
+
 			for _, obj := range objects {
-				fmt.Printf("%-35s  %-20s  %-13s  %s\n",
-					obj.ID,
-					output.Truncate(obj.Name, 20),
-					output.Truncate(obj.TypeKey, 13),
-					obj.Layout)
+				table.AddRow([]string{obj.ID, obj.Name, obj.TypeKey, obj.Layout})
 			}
+			fmt.Print(table.String())
 			fmt.Printf("\nTotal objects: %d\n", len(objects))
 		}
 	},

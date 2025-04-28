@@ -60,16 +60,12 @@ var typesListCmd = &cobra.Command{
 			}
 			fmt.Println(string(yamlOutput))
 		default:
-			// Table format
-			fmt.Println("KEY                    NAME                   LAYOUT           DESCRIPTION")
-			fmt.Println("---------------------- ---------------------- ---------------- ------------------------------")
+			// Table format with dynamic column widths
+			table := output.NewTable([]string{"KEY", "NAME", "LAYOUT", "DESCRIPTION"})
 			for _, typ := range types {
-				fmt.Printf("%-22s %-22s %-16s %s\n",
-					output.Truncate(typ.Key, 20),
-					output.Truncate(typ.Name, 20),
-					output.Truncate(typ.RecommendedLayout, 12),
-					output.Truncate(typ.Description, 30))
+				table.AddRow([]string{typ.Key, typ.Name, typ.RecommendedLayout, typ.Description})
 			}
+			fmt.Print(table.String())
 			fmt.Printf("\nTotal types: %d\n", len(types))
 		}
 	},
@@ -186,15 +182,12 @@ var templatesListCmd = &cobra.Command{
 			}
 			fmt.Println(string(yamlOutput))
 		default:
-			// Table format
-			fmt.Println("TEMPLATE ID                          NAME                   ARCHIVED")
-			fmt.Println("------------------------------------ ---------------------- --------")
+			// Table format with dynamic column widths
+			table := output.NewTable([]string{"TEMPLATE ID", "NAME", "ARCHIVED"})
 			for _, template := range templates {
-				fmt.Printf("%-36s %-22s %v\n",
-					template.ID,
-					output.Truncate(template.Name, 20),
-					template.Archived)
+				table.AddRow([]string{template.ID, template.Name, fmt.Sprintf("%v", template.Archived)})
 			}
+			fmt.Print(table.String())
 			fmt.Printf("\nTotal templates: %d\n", len(templates))
 		}
 	},

@@ -60,16 +60,12 @@ var membersListCmd = &cobra.Command{
 			}
 			fmt.Println(string(yamlOutput))
 		default:
-			// Table format
-			fmt.Println("MEMBER ID                             NAME                  ROLE      STATUS")
-			fmt.Println("-----------------------------------  --------------------  --------  ----------")
+			// Table format with dynamic column widths
+			table := output.NewTable([]string{"MEMBER ID", "NAME", "ROLE", "STATUS"})
 			for _, member := range resp.Data {
-				fmt.Printf("%-35s  %-20s  %-8s  %s\n",
-					member.ID,
-					output.Truncate(member.Name, 20),
-					member.Role,
-					member.Status)
+				table.AddRow([]string{member.ID, member.Name, member.Role, member.Status})
 			}
+			fmt.Print(table.String())
 			fmt.Printf("\nTotal members: %d\n", len(resp.Data))
 		}
 	},

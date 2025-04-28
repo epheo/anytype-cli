@@ -62,15 +62,12 @@ var listsViewsCmd = &cobra.Command{
 			}
 			fmt.Println(string(yamlOutput))
 		default:
-			// Table format
-			fmt.Println("VIEW ID                               NAME                  LAYOUT")
-			fmt.Println("-----------------------------------  --------------------  -------------")
+			// Table format with dynamic column widths
+			table := output.NewTable([]string{"VIEW ID", "NAME", "LAYOUT"})
 			for _, view := range resp.Data {
-				fmt.Printf("%-35s  %-20s  %s\n",
-					view.ID,
-					output.Truncate(view.Name, 20),
-					view.Layout)
+				table.AddRow([]string{view.ID, view.Name, view.Layout})
 			}
+			fmt.Print(table.String())
 			fmt.Printf("\nTotal views: %d\n", len(resp.Data))
 			if resp.Pagination.HasMore {
 				fmt.Printf("Has more views (Total: %d, Retrieved: %d)\n",
@@ -123,15 +120,12 @@ var listsObjectsCmd = &cobra.Command{
 			}
 			fmt.Println(string(yamlOutput))
 		default:
-			// Table format
-			fmt.Println("OBJECT ID                             NAME                  TYPE")
-			fmt.Println("-----------------------------------  --------------------  -------------")
+			// Table format with dynamic column widths
+			table := output.NewTable([]string{"OBJECT ID", "NAME", "TYPE"})
 			for _, obj := range resp.Data {
-				fmt.Printf("%-35s  %-20s  %s\n",
-					obj.ID,
-					output.Truncate(obj.Name, 20),
-					obj.TypeKey)
+				table.AddRow([]string{obj.ID, obj.Name, obj.TypeKey})
 			}
+			fmt.Print(table.String())
 			fmt.Printf("\nTotal objects: %d\n", len(resp.Data))
 			if resp.Pagination.HasMore {
 				fmt.Printf("Has more objects (Total: %d, Retrieved: %d)\n",

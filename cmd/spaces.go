@@ -59,12 +59,19 @@ var spacesListCmd = &cobra.Command{
 			}
 			fmt.Println(string(yamlOutput))
 		default:
-			// Table format
-			fmt.Println("SPACE ID                             NAME                  DESCRIPTION")
-			fmt.Println("-----------------------------------  --------------------  --------------------")
+			// Table format with dynamic column widths
+			table := output.NewTable([]string{"SPACE ID", "NAME", "DESCRIPTION"})
+			// Don't truncate ID column (index 0) as it's used for command line arguments
+			// Set reasonable max width for NAME and DESCRIPTION columns
+			table.SetColumnWidth(1, 30)
+			table.SetColumnTruncate(1, true) // NAME column
+			table.SetColumnWidth(2, 40)
+			table.SetColumnTruncate(2, true) // DESCRIPTION column
+
 			for _, space := range resp.Data {
-				fmt.Printf("%-35s  %-20s  %s\n", space.ID, output.Truncate(space.Name, 20), output.Truncate(space.Description, 30))
+				table.AddRow([]string{space.ID, space.Name, space.Description})
 			}
+			fmt.Print(table.String())
 			fmt.Printf("\nTotal spaces: %d\n", len(resp.Data))
 		}
 	},

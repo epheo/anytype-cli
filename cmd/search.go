@@ -77,16 +77,18 @@ var searchCmd = &cobra.Command{
 			}
 			fmt.Println(string(yamlOutput))
 		default:
-			// Table format
-			fmt.Println("OBJECT ID                             NAME                  TYPE           SPACE ID")
-			fmt.Println("-----------------------------------  --------------------  -------------  ----------------------------------")
+			// Table format with dynamic column widths
+			table := output.NewTable([]string{"OBJECT ID", "NAME", "TYPE", "SPACE ID"})
+			// Don't truncate ID columns (0 and 3) as they're used for command line arguments
+			table.SetColumnWidth(1, 30)
+			table.SetColumnTruncate(1, true) // NAME column
+			table.SetColumnWidth(2, 20)
+			table.SetColumnTruncate(2, true) // TYPE column
+
 			for _, obj := range resp.Data {
-				fmt.Printf("%-35s  %-20s  %-13s  %s\n",
-					obj.ID,
-					output.Truncate(obj.Name, 20),
-					output.Truncate(obj.TypeKey, 13),
-					obj.SpaceID)
+				table.AddRow([]string{obj.ID, obj.Name, obj.TypeKey, obj.SpaceID})
 			}
+			fmt.Print(table.String())
 			fmt.Printf("\nTotal results: %d\n", len(resp.Data))
 
 			// Print search details
