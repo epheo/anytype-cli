@@ -13,7 +13,7 @@ import (
 var authCmd = &cobra.Command{
 	Use:   "auth",
 	Short: "Authenticate with Anytype",
-	Long: `Authenticate with Anytype to obtain a session token and app key.
+	Long: `Authenticate with Anytype to obtain an app key.
 	
 This command will initiate an authentication flow that requires you to enter
 a verification code shown in your Anytype application.
@@ -36,7 +36,6 @@ Example:
 
 		// Update and save the config
 		cfg.AppKey = newConfig.AppKey
-		cfg.SessionToken = newConfig.SessionToken
 		if err := config.SaveConfig(cfg); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to save credentials: %v\n", err)
 			os.Exit(1)
