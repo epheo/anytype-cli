@@ -11,6 +11,5 @@ func GetClient(cfg *config.Config) anytype.Client {
 	return anytype.NewClient(
 		anytype.WithBaseURL(cfg.BaseURL),
 		anytype.WithAppKey(cfg.AppKey),
-		anytype.WithSessionToken(cfg.SessionToken),
 	)
 }

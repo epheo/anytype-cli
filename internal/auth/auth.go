@@ -50,9 +50,8 @@ func RunAuthentication(baseURL string) (*config.Config, error) {
 
 	// Save tokens to config
 	cfg := &config.Config{
-		AppKey:       tokenResponse.AppKey,
-		SessionToken: tokenResponse.SessionToken,
-		BaseURL:      baseURL,
+		AppKey:  tokenResponse.AppKey,
+		BaseURL: baseURL,
 	}
 
 	fmt.Println("Authentication successful!")
@@ -61,5 +60,5 @@ func RunAuthentication(baseURL string) (*config.Config, error) {
 
 // IsAuthenticated checks if the configuration has authentication credentials
 func IsAuthenticated(cfg *config.Config) bool {
-	return cfg != nil && cfg.AppKey != "" && cfg.SessionToken != ""
+	return cfg != nil && cfg.AppKey != ""
 }

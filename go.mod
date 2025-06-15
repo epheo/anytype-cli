@@ -4,7 +4,7 @@ go 1.23.8
 
 require (
 	github.com/AlecAivazis/survey/v2 v2.3.7
-	github.com/epheo/anytype-go v0.3.2
+	github.com/epheo/anytype-go v0.3.3
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.20.1
 	gopkg.in/yaml.v3 v3.0.1
