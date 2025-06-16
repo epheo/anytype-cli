@@ -9,9 +9,8 @@ import (
 
 // Config holds the CLI configuration
 type Config struct {
-	AppKey       string `mapstructure:"app_key"`
-	SessionToken string `mapstructure:"session_token"`
-	BaseURL      string `mapstructure:"base_url"`
+	AppKey  string `mapstructure:"app_key"`
+	BaseURL string `mapstructure:"base_url"`
 }
 
 // DefaultBaseURL is the default Anytype local API URL
@@ -69,7 +68,6 @@ func LoadConfig() (*Config, error) {
 // SaveConfig saves the configuration to disk
 func SaveConfig(config *Config) error {
 	viper.Set("app_key", config.AppKey)
-	viper.Set("session_token", config.SessionToken)
 	viper.Set("base_url", config.BaseURL)
 	return viper.WriteConfig()
 }
