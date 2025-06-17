@@ -140,14 +140,13 @@ var typesGetCmd = &cobra.Command{
 			if len(typ.PropertyDefinitions) > 0 {
 				fmt.Println("\nPROPERTY DEFINITIONS")
 				fmt.Println("-------------------")
-				fmt.Println("KEY                    NAME                   FORMAT           REQUIRED")
-				fmt.Println("---------------------- ---------------------- ---------------- --------")
+				fmt.Println("KEY                    NAME                   FORMAT")
+				fmt.Println("---------------------- ---------------------- ----------------")
 				for _, prop := range typ.PropertyDefinitions {
-					fmt.Printf("%-20s  %-20s  %-12s  %v\n",
+					fmt.Printf("%-20s  %-20s  %-12s\n",
 						output.Truncate(prop.Key, 20),
 						output.Truncate(prop.Name, 20),
-						output.Truncate(prop.Format, 12),
-						prop.Required)
+						output.Truncate(prop.Format, 12))
 				}
 			}
 		}

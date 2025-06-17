@@ -224,11 +224,10 @@ var objectsCreateCmd = &cobra.Command{
 		}
 
 		createReq := anytype.CreateObjectRequest{
-			TypeKey:     objectTypeKey,
-			Name:        objectName,
-			Description: objectDesc,
-			Body:        objectBody,
-			Icon:        icon,
+			TypeKey: objectTypeKey,
+			Name:    objectName,
+			Body:    objectBody,
+			Icon:    icon,
 		}
 
 		if objectTemplateID != "" {
