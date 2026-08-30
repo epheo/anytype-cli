@@ -1,404 +1,217 @@
 package cmd
 
 import (
-	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
-	"time"
+	"strconv"
 
-	"github.com/epheo/anytype-cli/internal/auth"
-	"github.com/epheo/anytype-cli/internal/client"
 	"github.com/epheo/anytype-cli/internal/output"
-	"github.com/epheo/anytype-cli/internal/spaces"
 	"github.com/epheo/anytype-go"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
-// objectsCmd represents the objects command
+var errNothingToUpdate = errors.New("no changes requested, see --help for flags")
+
 var objectsCmd = &cobra.Command{
 	Use:   "objects",
-	Short: "Manage Anytype objects",
-	Long:  `Create, read, update, and delete Anytype objects.`,
+	Short: "Manage objects in the current space",
 }
 
-// objectsListCmd represents the objects list command
 var objectsListCmd = &cobra.Command{
-	Use:   "list [spaceID|spaceName]",
-	Short: "List objects in a space",
-	Long:  `List all objects available in the specified space using either space ID or name.`,
-	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		if !auth.IsAuthenticated(cfg) {
-			fmt.Println("You are not authenticated. Please run 'anytype-cli auth' first.")
-			os.Exit(1)
-		}
-
-		spaceIdOrName := args[0]
-		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
-			os.Exit(1)
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		anytypeClient := client.GetClient(cfg)
-		objects, err := anytypeClient.Space(spaceID).Objects().List(ctx)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to list objects: %v\n", err)
-			os.Exit(1)
-		}
-
-		switch outputFormat {
-		case "json":
-			jsonOutput, err := json.MarshalIndent(objects, "", "  ")
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to format output: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Println(string(jsonOutput))
-		case "yaml":
-			yamlOutput, err := yaml.Marshal(objects)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to format output: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Println(string(yamlOutput))
-		default:
-			// Table format with dynamic column widths
-			table := output.NewTable([]string{"OBJECT ID", "NAME", "TYPE", "LAYOUT"})
-			// Don't truncate OBJECT ID as it's used for command line arguments
-			table.SetColumnWidth(1, 30)
-			table.SetColumnTruncate(1, true) // NAME column
-			table.SetColumnWidth(2, 20)
-			table.SetColumnTruncate(2, true) // TYPE column
-			table.SetColumnWidth(3, 20)
-			table.SetColumnTruncate(3, true) // LAYOUT column
-
-			for _, obj := range objects {
-				table.AddRow([]string{obj.ID, obj.Name, obj.TypeKey, obj.Layout})
-			}
-			fmt.Print(table.String())
-			fmt.Printf("\nTotal objects: %d\n", len(objects))
-		}
-	},
+	Use:   "list",
+	Short: "List objects",
+	Args:  cobra.NoArgs,
+	RunE: listInSpace(
+		func(sc anytype.SpaceContext, _ []string) lister[anytype.Object] { return sc.Objects() },
+		objectTable),
 }
 
-// objectsGetCmd represents the objects get command
+func objectTable(items []anytype.Object) *output.Table {
+	t := output.NewTable("ID", "NAME", "TYPE", "LAYOUT").MaxWidth(1, 40).MaxWidth(2, 20)
+	for _, o := range items {
+		t.Row(o.ID, o.Name, typeKey(o.Type), o.Layout)
+	}
+	return t
+}
+
+func typeKey(t *anytype.Type) string {
+	if t == nil {
+		return ""
+	}
+	return t.Key
+}
+
 var objectsGetCmd = &cobra.Command{
-	Use:   "get [spaceID|spaceName] [objectID]",
-	Short: "Get details of a specific object",
-	Long:  `Retrieve detailed information about a specific Anytype object.`,
-	Args:  cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
-		if !auth.IsAuthenticated(cfg) {
-			fmt.Println("You are not authenticated. Please run 'anytype-cli auth' first.")
-			os.Exit(1)
-		}
-
-		spaceIdOrName := args[0]
-		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
-			os.Exit(1)
-		}
-
-		objectID := args[1]
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		anytypeClient := client.GetClient(cfg)
-		resp, err := anytypeClient.Space(spaceID).Object(objectID).Get(ctx)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to get object: %v\n", err)
-			os.Exit(1)
-		}
-
-		switch outputFormat {
-		case "json":
-			jsonOutput, err := json.MarshalIndent(resp.Object, "", "  ")
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to format output: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Println(string(jsonOutput))
-		case "yaml":
-			yamlOutput, err := yaml.Marshal(resp.Object)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to format output: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Println(string(yamlOutput))
-		default:
-			// Detailed output
-			obj := resp.Object
-			fmt.Println("OBJECT DETAILS")
-			fmt.Println("--------------")
-			fmt.Printf("ID: %s\n", obj.ID)
-			fmt.Printf("Name: %s\n", obj.Name)
-			fmt.Printf("Type: %s\n", obj.TypeKey)
-			if obj.Type != nil {
-				fmt.Printf("Type Name: %s\n", obj.Type.Name)
-			}
-			fmt.Printf("Layout: %s\n", obj.Layout)
-			fmt.Printf("Space ID: %s\n", obj.SpaceID)
-			fmt.Printf("Archived: %v\n", obj.Archived)
-			if obj.Icon != nil {
-				fmt.Printf("Icon: %s (%s)\n", obj.Icon.Emoji, obj.Icon.Format)
-			}
-
-			if len(obj.Properties) > 0 {
-				fmt.Println("\nPROPERTIES")
-				fmt.Println("----------")
-				for _, prop := range obj.Properties {
-					fmt.Printf("%s: ", prop.Name)
-
-					switch {
-					case prop.Text != "":
-						fmt.Printf("%s\n", prop.Text)
-					case prop.Number != 0:
-						fmt.Printf("%f\n", prop.Number)
-					case prop.Select != nil:
-						fmt.Printf("%s\n", prop.Select.Name)
-					case len(prop.MultiSelect) > 0:
-						fmt.Print("[")
-						for i, sel := range prop.MultiSelect {
-							if i > 0 {
-								fmt.Print(", ")
-							}
-							fmt.Print(sel.Name)
-						}
-						fmt.Println("]")
-					default:
-						fmt.Println("[complex type]")
-					}
-				}
-			}
-		}
-	},
-}
-
-// objectsCreateCmd represents the objects create command
-var objectsCreateCmd = &cobra.Command{
-	Use:   "create [spaceID|spaceName]",
-	Short: "Create a new object",
-	Long:  `Create a new object in the specified Anytype space.`,
+	Use:   "get <object-id>",
+	Short: "Show one object with its properties",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		if !auth.IsAuthenticated(cfg) {
-			fmt.Println("You are not authenticated. Please run 'anytype-cli auth' first.")
-			os.Exit(1)
-		}
-
-		// Validate inputs
-		if objectName == "" {
-			fmt.Println("Object name is required")
-			os.Exit(1)
-		}
-		if objectTypeKey == "" {
-			fmt.Println("Type key is required. Use 'ot-page' for a basic page.")
-			os.Exit(1)
-		}
-
-		spaceIdOrName := args[0]
-		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
+	RunE: inSpace(func(s *session, sc anytype.SpaceContext, args []string) error {
+		resp, err := sc.Object(args[0]).Get(s.ctx)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
-			os.Exit(1)
+			return err
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+		return s.out.Print(resp.Object, func(w io.Writer) { writeObject(w, resp.Object) })
+	}),
+}
 
-		anytypeClient := client.GetClient(cfg)
+func writeObject(w io.Writer, o *anytype.Object) {
+	output.NewDetails().
+		Add("ID", o.ID).
+		Add("Name", o.Name).
+		AddIf("Type", typeKey(o.Type)).
+		Add("Layout", o.Layout).
+		Add("Space ID", o.SpaceID).
+		Add("Archived", strconv.FormatBool(o.Archived)).
+		AddIf("Icon", output.Icon(o.Icon)).
+		AddIf("Snippet", o.Snippet).
+		Write(w)
 
-		var icon *anytype.Icon
-		if objectIcon != "" {
-			icon = &anytype.Icon{
-				Format: anytype.IconFormatEmoji,
-				Emoji:  objectIcon,
-			}
-		}
+	if len(o.Properties) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "\nProperties")
+	t := output.NewTable("KEY", "NAME", "FORMAT", "VALUE").MaxWidth(3, 60)
+	for _, p := range o.Properties {
+		t.Row(p.Key, p.Name, string(p.Format), output.PropertyValue(p))
+	}
+	t.Write(w)
+}
 
-		createReq := anytype.CreateObjectRequest{
-			TypeKey: objectTypeKey,
-			Name:    objectName,
-			Body:    objectBody,
-			Icon:    icon,
-		}
+// bodyFlags returns --body, or the content of --body-file ("-" is stdin).
+func bodyFlags(cmd *cobra.Command) (string, error) {
+	body, _ := cmd.Flags().GetString("body")
+	path, _ := cmd.Flags().GetString("body-file")
+	if path == "" {
+		return body, nil
+	}
+	if body != "" {
+		return "", errors.New("--body and --body-file are exclusive")
+	}
+	var data []byte
+	var err error
+	if path == "-" {
+		data, err = io.ReadAll(os.Stdin)
+	} else {
+		data, err = os.ReadFile(path)
+	}
+	if err != nil {
+		return "", fmt.Errorf("read body: %w", err)
+	}
+	return string(data), nil
+}
 
-		if objectTemplateID != "" {
-			createReq.TemplateID = objectTemplateID
-		}
-
-		resp, err := anytypeClient.Space(spaceID).Objects().Create(ctx, createReq)
+var objectsCreateCmd = &cobra.Command{
+	Use:   "create",
+	Short: "Create an object",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		f := cmd.Flags()
+		req := anytype.CreateObjectRequest{Icon: iconFlag(cmd)}
+		req.Name, _ = f.GetString("name")
+		req.TypeKey, _ = f.GetString("type")
+		req.TemplateID, _ = f.GetString("template")
+		props, _ := f.GetStringArray("property")
+		body, err := bodyFlags(cmd)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to create object: %v\n", err)
-			os.Exit(1)
+			return err
 		}
+		req.Body = body
 
-		switch outputFormat {
-		case "json":
-			jsonOutput, err := json.MarshalIndent(resp.Object, "", "  ")
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to format output: %v\n", err)
-				os.Exit(1)
+		return inSpace(func(s *session, sc anytype.SpaceContext, _ []string) error {
+			if req.Properties, err = propertyValues(s, sc, props); err != nil {
+				return err
 			}
-			fmt.Println(string(jsonOutput))
-		case "yaml":
-			yamlOutput, err := yaml.Marshal(resp.Object)
+			resp, err := sc.Objects().Create(s.ctx, req)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to format output: %v\n", err)
-				os.Exit(1)
+				return err
 			}
-			fmt.Println(string(yamlOutput))
-		default:
-			fmt.Println("Object created successfully:")
-			fmt.Printf("ID: %s\n", resp.Object.ID)
-			fmt.Printf("Name: %s\n", resp.Object.Name)
-			fmt.Printf("Type: %s\n", resp.Object.TypeKey)
-		}
+			return printCreated(s.out, resp.Object, "Object", resp.Object.ID, resp.Object.Name)
+		})(cmd, args)
 	},
 }
 
-// objectsDeleteCmd represents the objects delete command
+var objectsUpdateCmd = &cobra.Command{
+	Use:   "update <object-id>",
+	Short: "Change an object's name, body, icon, type, or properties",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		f := cmd.Flags()
+		req := anytype.UpdateObjectRequest{Icon: iconFlag(cmd)}
+		req.Name, _ = f.GetString("name")
+		req.TypeKey, _ = f.GetString("type")
+		props, _ := f.GetStringArray("property")
+		body, err := bodyFlags(cmd)
+		if err != nil {
+			return err
+		}
+		req.Markdown = body
+		if req.Name == "" && req.TypeKey == "" && req.Markdown == "" && req.Icon == nil && len(props) == 0 {
+			return errNothingToUpdate
+		}
+
+		return inSpace(func(s *session, sc anytype.SpaceContext, args []string) error {
+			if req.Properties, err = propertyValues(s, sc, props); err != nil {
+				return err
+			}
+			resp, err := sc.Object(args[0]).Update(s.ctx, req)
+			if err != nil {
+				return err
+			}
+			return s.out.Print(resp.Object, func(w io.Writer) { writeObject(w, resp.Object) })
+		})(cmd, args)
+	},
+}
+
 var objectsDeleteCmd = &cobra.Command{
-	Use:   "delete [spaceID|spaceName] [objectID]",
-	Short: "Delete an object",
-	Long:  `Delete an Anytype object from the specified space.`,
-	Args:  cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
-		if !auth.IsAuthenticated(cfg) {
-			fmt.Println("You are not authenticated. Please run 'anytype-cli auth' first.")
-			os.Exit(1)
-		}
-
-		spaceIdOrName := args[0]
-		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
+	Use:   "delete <object-id>",
+	Short: "Archive an object (moves it to the bin)",
+	Args:  cobra.ExactArgs(1),
+	RunE: inSpace(func(s *session, sc anytype.SpaceContext, args []string) error {
+		resp, err := sc.Object(args[0]).Delete(s.ctx)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
-			os.Exit(1)
+			return err
 		}
-
-		objectID := args[1]
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		anytypeClient := client.GetClient(cfg)
-		resp, err := anytypeClient.Space(spaceID).Object(objectID).Delete(ctx)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to delete object: %v\n", err)
-			os.Exit(1)
-		}
-
-		switch outputFormat {
-		case "json":
-			jsonOutput, err := json.MarshalIndent(resp.Object, "", "  ")
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to format output: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Println(string(jsonOutput))
-		case "yaml":
-			yamlOutput, err := yaml.Marshal(resp.Object)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to format output: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Println(string(yamlOutput))
-		default:
-			fmt.Printf("Object '%s' (ID: %s) deleted successfully.\n", resp.Object.Name, resp.Object.ID)
-			fmt.Printf("Archive status: %v\n", resp.Object.Archived)
-		}
-	},
+		return printArchived(s.out, resp.Object, "Object", resp.Object.ID, resp.Object.Name)
+	}),
 }
 
-// objectsExportCmd represents the objects export command
 var objectsExportCmd = &cobra.Command{
-	Use:   "export [spaceID|spaceName] [objectID]",
-	Short: "Export an object",
-	Long:  `Export an Anytype object in markdown format.`,
-	Args:  cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
-		if !auth.IsAuthenticated(cfg) {
-			fmt.Println("You are not authenticated. Please run 'anytype-cli auth' first.")
-			os.Exit(1)
-		}
-
-		spaceIdOrName := args[0]
-		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
+	Use:   "export <object-id>",
+	Short: "Print an object as markdown",
+	Args:  cobra.ExactArgs(1),
+	RunE: inSpace(func(s *session, sc anytype.SpaceContext, args []string) error {
+		resp, err := sc.Object(args[0]).Get(s.ctx, anytype.WithFormat("md"))
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
-			os.Exit(1)
+			return err
 		}
-
-		objectID := args[1]
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		anytypeClient := client.GetClient(cfg)
-		resp, err := anytypeClient.Space(spaceID).Object(objectID).Export(ctx, "markdown")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to export object: %v\n", err)
-			os.Exit(1)
-		}
-
-		switch outputFormat {
-		case "json":
-			jsonOutput, err := json.MarshalIndent(resp, "", "  ")
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to format output: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Println(string(jsonOutput))
-		default:
-			fmt.Println(resp.Markdown)
-		}
-	},
+		return s.out.Print(resp.Object, func(w io.Writer) { fmt.Fprintln(w, resp.Object.Markdown) })
+	}),
 }
 
-var (
-	objectName       string
-	objectTypeKey    string
-	objectDesc       string
-	objectIcon       string
-	objectBody       string
-	objectTemplateID string
-)
+func addBodyFlags(cmd *cobra.Command) {
+	cmd.Flags().String("body", "", "markdown body")
+	cmd.Flags().String("body-file", "", "read markdown body from a file, or stdin with -")
+	cmd.Flags().StringArray("property", nil,
+		"property as key=value, repeatable; lists are comma-separated, select/multi_select take tag IDs")
+	cmd.Flags().String("icon", "", "emoji icon")
+}
 
 func init() {
 	rootCmd.AddCommand(objectsCmd)
-	objectsCmd.AddCommand(objectsListCmd)
-	objectsCmd.AddCommand(objectsGetCmd)
-	objectsCmd.AddCommand(objectsCreateCmd)
-	objectsCmd.AddCommand(objectsDeleteCmd)
-	objectsCmd.AddCommand(objectsExportCmd)
+	objectsCmd.AddCommand(objectsListCmd, objectsGetCmd, objectsCreateCmd, objectsUpdateCmd, objectsDeleteCmd, objectsExportCmd)
 
-	// Set up completion functions after config is loaded
-	// This is added to the OnInitialize pipeline
-	cobra.OnInitialize(func() {
-		if cfg != nil {
-			spaceCompletion := spaces.GetSpaceCompletionFunc(cfg)
-			// Add space completion to commands
-			objectsListCmd.ValidArgsFunction = spaceCompletion
-			objectsGetCmd.ValidArgsFunction = spaceCompletion
-			objectsCreateCmd.ValidArgsFunction = spaceCompletion
-			objectsDeleteCmd.ValidArgsFunction = spaceCompletion
-			objectsExportCmd.ValidArgsFunction = spaceCompletion
-		}
-	})
+	addListFlags(objectsListCmd)
 
-	// Flags for create command
-	objectsCreateCmd.Flags().StringVar(&objectName, "name", "", "Name for the new object (required)")
-	objectsCreateCmd.Flags().StringVar(&objectTypeKey, "type", "ot-page", "Type key for the object (default: ot-page)")
-	objectsCreateCmd.Flags().StringVar(&objectDesc, "description", "", "Description for the new object")
-	objectsCreateCmd.Flags().StringVar(&objectIcon, "icon", "", "Emoji icon for the object (e.g. '📄')")
-	objectsCreateCmd.Flags().StringVar(&objectBody, "body", "", "Markdown body content for the object")
-	objectsCreateCmd.Flags().StringVar(&objectTemplateID, "template", "", "Template ID to use for creating the object")
-	objectsCreateCmd.MarkFlagRequired("name")
+	c := objectsCreateCmd.Flags()
+	c.String("name", "", "object name")
+	c.String("type", "page", "type key")
+	c.String("template", "", "template ID")
+	addBodyFlags(objectsCreateCmd)
+
+	u := objectsUpdateCmd.Flags()
+	u.String("name", "", "new name")
+	u.String("type", "", "new type key")
+	addBodyFlags(objectsUpdateCmd)
 }

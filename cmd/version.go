@@ -7,24 +7,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// CLI version information
-const (
-	AppVersion = "0.1.0"
-	AppName    = "anytype-cli"
-)
+// version is set at build time with -ldflags "-X github.com/epheo/anytype-cli/cmd.version=..."
+var version = "dev"
 
-// versionCmd represents the version command
 var versionCmd = &cobra.Command{
 	Use:   "version",
-	Short: "Display version information",
-	Long:  `Display version information for the CLI and the Anytype SDK it's using.`,
+	Short: "Print CLI, SDK, and API versions",
+	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
-		// Get SDK version info
-		sdkVersion := anytype.GetVersionInfo()
-
-		fmt.Printf("%s version: %s\n", AppName, AppVersion)
-		fmt.Printf("Anytype SDK version: %s\n", sdkVersion.Version)
-		fmt.Printf("Anytype API version: %s\n", sdkVersion.APIVersion)
+		sdk := anytype.GetVersionInfo()
+		fmt.Printf("anytype-cli %s\nanytype-go  %s\napi         %s\n", version, sdk.Version, sdk.APIVersion)
 	},
 }
 

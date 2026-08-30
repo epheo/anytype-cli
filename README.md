@@ -1,175 +1,129 @@
 # Anytype CLI
 
-A simple command-line interface for interacting with [Anytype](https://anytype.io/), enabling full management of spaces, objects, types, and more.
+Command line client for the [Anytype](https://anytype.io/) local API,
+built on the [anytype-go](https://github.com/epheo/anytype-go) SDK.
 
-## Overview
+## Install
 
-Anytype CLI provides a complete set of commands for interacting with Anytype spaces, objects, types, lists, templates, and more. It uses the [anytype-go](https://github.com/epheo/anytype-go) SDK and spf13/cobra.
+```bash
+go install github.com/epheo/anytype-cli@latest
+```
 
-## Installation
-
-### From Source
+Or from source:
 
 ```bash
 git clone https://github.com/epheo/anytype-cli.git
 cd anytype-cli
-go build -o bin/anytype-cli
+make build      # bin/anytype-cli, version stamped from git
+make install    # /usr/local/bin/anytype-cli
 ```
 
-### Requirements
+Requires Go 1.23+ and a running Anytype app with the local API enabled.
 
-- Go 1.18+
-- Anytype app running locally with API enabled
-
-## Getting Started
-
-### Authentication
-
-First, you need to authenticate with your local Anytype instance:
+## Authenticate
 
 ```bash
-anytype-cli auth
+anytype-cli auth          # type the code shown by the app
+anytype-cli auth status   # where credentials come from, and whether the key works
+anytype-cli auth logout
 ```
 
-This will prompt you to enter a verification code displayed in your Anytype app.
+The API key is stored in `~/.anytype-cli/config.yaml` (mode 0600).
 
-### Basic Usage
+Overrides:
+
+- `--config <path>`: another config file
+- `--base-url <url>` or `ANYTYPE_BASE_URL`: API address (default `http://localhost:31009`)
+- `ANYTYPE_APP_KEY`: API key without a config file
+
+## Choose a space
+
+Most commands work inside one space. It is taken from, in order:
+
+1. `--space` / `-s` on the command line
+2. `ANYTYPE_SPACE` in the environment
+3. `default_space` in the config file
 
 ```bash
-# Get CLI version information
-anytype-cli version
+anytype-cli config set default-space "My Space"
+anytype-cli config get
+anytype-cli config unset default-space
+```
 
-# List all spaces
+A space may be given by ID or by name.
+Name matching is case-insensitive, exact first, then unique substring.
+
+## Usage
+
+```bash
 anytype-cli spaces list
-
-# All commands accept either space ID or space name
-# The CLI implements a smart resolution algorithm that:
-#  1. Checks if the input matches an exact space ID
-#  2. Looks for an exact case-insensitive name match
-#  3. Looks for a partial name match if there's only one
-#  4. Falls back to treating the input as a space ID
-
-# Search for objects (using either space ID or space name)
-anytype-cli search --query "important" --space <space-id|space-name>
-
-# Create a new page (using either space ID or space name)
-anytype-cli objects create <space-id|space-name> --name "My New Page" --type "ot-page" --body "# Hello\n\nThis is my new page"
+anytype-cli objects list --limit 20
+anytype-cli objects get <object-id>
+anytype-cli objects create --name "Notes" --type page --body "# Hello"
+anytype-cli objects create --name "Notes" --body-file note.md
+anytype-cli objects export <object-id> | sed 's/foo/bar/' | anytype-cli objects update <object-id> --body-file -
+anytype-cli objects update <object-id> --property done=true --property due=2026-01-01
+anytype-cli types get page
+anytype-cli search "meeting" --types page,task --sort last_modified_date
+anytype-cli search --filter 'name:contains:plan' --filter 'created_date:gt:2026-01-01'
+anytype-cli search "meeting" --all-spaces
 ```
 
-## Available Commands
+### Output
 
-### Global Options
+`-o table` (default), `-o json`, `-o yaml`.
+JSON and YAML print the raw SDK structures; tables truncate long names but never IDs.
 
-- `--base-url`: Anytype API base URL (default: <http://localhost:31009>)
-- `--config`: Custom config file location
-- `--output`, `-o`: Output format (table, json, yaml)
-- `--verbose`, `-v`: Enable verbose output
+### Pagination
 
-### Authentication Command
+Every `list` command and `search` accept `--limit`, `--offset`, and `--all`.
+Tables end with a footer showing how to fetch the next page.
 
-- `auth`: Authenticate with Anytype
-  - `--force`: Force re-authentication
+### Commands
 
-### Spaces
+| Group | Commands | Space |
+| --- | --- | --- |
+| `spaces` | `list`, `get [space]`, `create`, `update [space]` | positional, falls back to current |
+| `objects` | `list`, `get`, `create`, `update`, `delete`, `export` | current |
+| `types` | `list`, `get`, `create`, `update`, `delete` | current |
+| `templates` | `list <type>`, `get <type> <template-id>` | current |
+| `properties` | `list`, `get`, `create`, `update`, `delete` | current |
+| `tags` | `list <property-id>`, `get`, `create`, `update`, `delete` | current |
+| `lists` | `views`, `objects`, `add`, `remove` | current |
+| `members` | `list`, `get` | current |
+| `search` | `[query]` | current, or all with `--all-spaces` |
+| `auth` | `status`, `logout` | |
+| `config` | `path`, `get`, `set`, `unset` | |
+| `version`, `completion` | | |
 
-- `spaces list`: List all spaces
-- `spaces get <space-id>`: Get details about a specific space
-- `spaces create`: Create a new space
-  - `--name`: Name for the space (required)
-  - `--description`: Description for the space
-  - `--icon`: Emoji icon for the space
+Run `anytype-cli <group> <command> --help` for flags.
 
-### Objects
+Notes:
 
-- `objects list <space-id>`: List objects in a space
-- `objects get <space-id> <object-id>`: Get details about an object
-- `objects create <space-id>`: Create a new object
-  - `--name`: Name for the object (required)
-  - `--type`: Type key for the object (default: ot-page)
-  - `--description`: Description for the object
-  - `--body`: Markdown body content
-  - `--icon`: Emoji icon for the object
-  - `--template`: Template ID to use
-- `objects delete <space-id> <object-id>`: Delete an object
-- `objects export <space-id> <object-id>`: Export an object in markdown format
+- `<type>` arguments accept a key (`page`), a display name (`Page`), or an ID.
+- `--property key=value` resolves the property format from the space, so the type is never stated.
+  Lists are comma-separated; select and multi_select take tag IDs; an empty value clears the property.
+- `--filter key:condition[:value]` works the same way. Conditions: eq, ne, in, nin, contains,
+  ncontains, gt, lt, gte, lte, all, empty, nempty. `--match any` switches from and to or.
+  Keys missing from the property list (such as `name`) are sent as text.
+- `delete` archives; nothing is destroyed.
+- Errors carry the API message and HTTP status, for example `Error: invalid api key (HTTP 401)`.
 
-### Types
-
-- `types list <space-id>`: List all object types in a space
-- `types get <space-id> <type-id>`: Get details about a specific object type
-- `types templates <space-id> <type-id>`: List templates for a specific type
-- `types template-get <space-id> <type-id> <template-id>`: Get details about a template
-
-### Lists
-
-- `lists views <space-id> <list-id>`: List views for a list
-- `lists objects <space-id> <list-id> <view-id>`: List objects in a specific list view
-- `lists add <space-id> <list-id> <object-id>...`: Add objects to a list
-- `lists remove <space-id> <list-id> <object-id>`: Remove an object from a list
-
-### Members
-
-- `members list <space-id>`: List members in a space
-- `members get <space-id> <member-id>`: Get details about a specific member
-
-### Search
-
-- `search`: Search for objects
-  - `--query`: Search query string
-  - `--types`: Filter by object types (comma-separated)
-  - `--sort`: Property to sort by
-  - `--direction`: Sort direction (asc or desc)
-  - `--space`: Limit search to a specific space
-
-## Examples
-
-### Managing Spaces
+### Shell completion
 
 ```bash
-# List all spaces
-anytype-cli spaces list
-
-# Get details about a space
-anytype-cli spaces get <space-id>
-
-# Create a new space
-anytype-cli spaces create --name "Project Documentation" --description "Documentation for my projects" --icon "📚"
+source <(anytype-cli completion bash)
+anytype-cli completion zsh > "${fpath[1]}/_anytype-cli"
+anytype-cli completion fish > ~/.config/fish/completions/anytype-cli.fish
 ```
 
-### Working with Objects
+`--space` and the `spaces get` argument complete by ID and name.
+
+## Development
 
 ```bash
-# List all objects in a space
-anytype-cli objects list <space-id>
-
-# Create a new page
-anytype-cli objects create <space-id> --name "Meeting Notes" --type "ot-page" --body "# Meeting Notes\n\n## Agenda\n\n- Item 1\n- Item 2"
-
-# Export an object as markdown
-anytype-cli objects export <space-id> <object-id>
-```
-
-### Searching
-
-```bash
-# Search all spaces for objects containing "project"
-anytype-cli search --query "project"
-
-# Search in a specific space with filtering and sorting
-anytype-cli search --query "task" --space <space-id> --types "ot-task" --sort "last_modified_date" --direction "desc"
-```
-
-### Working with Lists and Views
-
-```bash
-# List all views in a list
-anytype-cli lists views <space-id> <list-id>
-
-# List objects in a specific view
-anytype-cli lists objects <space-id> <list-id> <view-id>
-
-# Add an object to a list
-anytype-cli lists add <space-id> <list-id> <object-id>
+make test
+make lint
 ```
 
 ## License

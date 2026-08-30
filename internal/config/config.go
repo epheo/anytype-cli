@@ -1,73 +1,89 @@
+// Package config reads and writes the CLI credentials file.
 package config
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
-	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
 
-// Config holds the CLI configuration
+const (
+	DefaultBaseURL = "http://localhost:31009"
+	EnvAppKey      = "ANYTYPE_APP_KEY"
+	EnvBaseURL     = "ANYTYPE_BASE_URL"
+	EnvSpace       = "ANYTYPE_SPACE"
+)
+
 type Config struct {
-	AppKey  string `mapstructure:"app_key"`
-	BaseURL string `mapstructure:"base_url"`
+	AppKey  string `yaml:"app_key"`
+	BaseURL string `yaml:"base_url"`
+	// DefaultSpace is a space ID or name used when --space is absent.
+	DefaultSpace string `yaml:"default_space,omitempty"`
+
+	path string
 }
 
-// DefaultBaseURL is the default Anytype local API URL
-const DefaultBaseURL = "http://localhost:31009"
-
-// LoadConfig loads the configuration from config file and environment variables
-func LoadConfig() (*Config, error) {
+// DefaultPath keeps the pre-refactor location so existing credentials stay valid.
+func DefaultPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-
-	configDir := filepath.Join(home, ".anytype-cli")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return nil, err
-	}
-
-	configFilePath := filepath.Join(configDir, "config")
-
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath(configDir)
-
-	// Environment variables
-	viper.SetEnvPrefix("ANYTYPE")
-	viper.AutomaticEnv()
-
-	// Set defaults
-	viper.SetDefault("base_url", DefaultBaseURL)
-
-	// If config file doesn't exist, create it
-	if _, err := os.Stat(configFilePath + ".yaml"); os.IsNotExist(err) {
-		defaultConfig := Config{
-			BaseURL: DefaultBaseURL,
-		}
-		viper.Set("base_url", defaultConfig.BaseURL)
-		if err := viper.SafeWriteConfig(); err != nil {
-			return nil, err
-		}
-	} else {
-		// Read the config file
-		if err := viper.ReadInConfig(); err != nil {
-			return nil, err
-		}
-	}
-
-	var config Config
-	if err := viper.Unmarshal(&config); err != nil {
-		return nil, err
-	}
-
-	return &config, nil
+	return filepath.Join(home, ".anytype-cli", "config.yaml"), nil
 }
 
-// SaveConfig saves the configuration to disk
-func SaveConfig(config *Config) error {
-	viper.Set("app_key", config.AppKey)
-	viper.Set("base_url", config.BaseURL)
-	return viper.WriteConfig()
+// Load never writes to disk; a missing file yields defaults.
+// Environment variables override file values.
+func Load(path string) (*Config, error) {
+	if path == "" {
+		var err error
+		if path, err = DefaultPath(); err != nil {
+			return nil, err
+		}
+	}
+
+	cfg := &Config{path: path}
+	data, err := os.ReadFile(path)
+	switch {
+	case err == nil:
+		if err := yaml.Unmarshal(data, cfg); err != nil {
+			return nil, fmt.Errorf("parse %s: %w", path, err)
+		}
+	case errors.Is(err, os.ErrNotExist):
+	default:
+		return nil, err
+	}
+
+	if v := os.Getenv(EnvAppKey); v != "" {
+		cfg.AppKey = v
+	}
+	if v := os.Getenv(EnvBaseURL); v != "" {
+		cfg.BaseURL = v
+	}
+	if v := os.Getenv(EnvSpace); v != "" {
+		cfg.DefaultSpace = v
+	}
+	if cfg.BaseURL == "" {
+		cfg.BaseURL = DefaultBaseURL
+	}
+	return cfg, nil
+}
+
+func (c *Config) Path() string { return c.path }
+
+func (c *Config) Authenticated() bool { return c != nil && c.AppKey != "" }
+
+// Save restricts permissions because the file holds the API key.
+func (c *Config) Save() error {
+	if err := os.MkdirAll(filepath.Dir(c.path), 0o700); err != nil {
+		return err
+	}
+	data, err := yaml.Marshal(c)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(c.path, data, 0o600)
 }

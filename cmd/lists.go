@@ -1,233 +1,77 @@
 package cmd
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
-	"os"
-	"time"
+	"io"
 
-	"github.com/epheo/anytype-cli/internal/auth"
-	"github.com/epheo/anytype-cli/internal/client"
 	"github.com/epheo/anytype-cli/internal/output"
-	"github.com/epheo/anytype-cli/internal/spaces"
+	"github.com/epheo/anytype-go"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
-// listsCmd represents the lists command
 var listsCmd = &cobra.Command{
 	Use:   "lists",
-	Short: "Manage lists and views",
-	Long:  `Interact with lists and views in Anytype spaces.`,
+	Short: "Manage collections (lists) and their views in the current space",
 }
 
-// listsViewsCmd represents the lists views command
 var listsViewsCmd = &cobra.Command{
-	Use:   "views [spaceID|spaceName] [listID]",
-	Short: "List views for a list",
-	Long:  `List all available views for the specified list in an Anytype space.`,
-	Args:  cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
-		if !auth.IsAuthenticated(cfg) {
-			fmt.Println("You are not authenticated. Please run 'anytype-cli auth' first.")
-			os.Exit(1)
-		}
-
-		spaceIdOrName := args[0]
-		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
-			os.Exit(1)
-		}
-		
-		listID := args[1]
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		anytypeClient := client.GetClient(cfg)
-		resp, err := anytypeClient.Space(spaceID).List(listID).Views().List(ctx)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to list views: %v\n", err)
-			os.Exit(1)
-		}
-
-		switch outputFormat {
-		case "json":
-			jsonOutput, err := json.MarshalIndent(resp.Data, "", "  ")
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to format output: %v\n", err)
-				os.Exit(1)
+	Use:   "views <list-id>",
+	Short: "List views of a list",
+	Args:  cobra.ExactArgs(1),
+	RunE: listInSpace(
+		func(sc anytype.SpaceContext, args []string) lister[anytype.ListView] { return sc.List(args[0]).Views() },
+		func(items []anytype.ListView) *output.Table {
+			t := output.NewTable("ID", "NAME", "LAYOUT", "FILTERS", "SORTS")
+			for _, v := range items {
+				t.Row(v.ID, v.Name, v.Layout, fmt.Sprint(len(v.Filters)), fmt.Sprint(len(v.Sorts)))
 			}
-			fmt.Println(string(jsonOutput))
-		case "yaml":
-			yamlOutput, err := yaml.Marshal(resp.Data)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to format output: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Println(string(yamlOutput))
-		default:
-			// Table format with dynamic column widths
-			table := output.NewTable([]string{"VIEW ID", "NAME", "LAYOUT"})
-			for _, view := range resp.Data {
-				table.AddRow([]string{view.ID, view.Name, view.Layout})
-			}
-			fmt.Print(table.String())
-			fmt.Printf("\nTotal views: %d\n", len(resp.Data))
-			if resp.Pagination.HasMore {
-				fmt.Printf("Has more views (Total: %d, Retrieved: %d)\n",
-					resp.Pagination.Total,
-					len(resp.Data))
-			}
-		}
-	},
+			return t
+		}),
 }
 
-// listsObjectsCmd represents the lists objects command
 var listsObjectsCmd = &cobra.Command{
-	Use:   "objects [spaceID|spaceName] [listID] [viewID]",
-	Short: "List objects in a view",
-	Long:  `List all objects in a specific view of a list in an Anytype space.`,
-	Args:  cobra.ExactArgs(3),
-	Run: func(cmd *cobra.Command, args []string) {
-		if !auth.IsAuthenticated(cfg) {
-			fmt.Println("You are not authenticated. Please run 'anytype-cli auth' first.")
-			os.Exit(1)
-		}
-
-		spaceIdOrName := args[0]
-		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
-			os.Exit(1)
-		}
-		
-		listID := args[1]
-		viewID := args[2]
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		anytypeClient := client.GetClient(cfg)
-		resp, err := anytypeClient.Space(spaceID).List(listID).View(viewID).Objects().List(ctx)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to list objects in view: %v\n", err)
-			os.Exit(1)
-		}
-
-		switch outputFormat {
-		case "json":
-			jsonOutput, err := json.MarshalIndent(resp.Data, "", "  ")
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to format output: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Println(string(jsonOutput))
-		case "yaml":
-			yamlOutput, err := yaml.Marshal(resp.Data)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to format output: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Println(string(yamlOutput))
-		default:
-			// Table format with dynamic column widths
-			table := output.NewTable([]string{"OBJECT ID", "NAME", "TYPE"})
-			for _, obj := range resp.Data {
-				table.AddRow([]string{obj.ID, obj.Name, obj.TypeKey})
-			}
-			fmt.Print(table.String())
-			fmt.Printf("\nTotal objects: %d\n", len(resp.Data))
-			if resp.Pagination.HasMore {
-				fmt.Printf("Has more objects (Total: %d, Retrieved: %d)\n",
-					resp.Pagination.Total,
-					len(resp.Data))
-			}
-		}
-	},
+	Use:   "objects <list-id> <view-id>",
+	Short: "List objects shown by a view",
+	Args:  cobra.ExactArgs(2),
+	RunE: listInSpace(
+		func(sc anytype.SpaceContext, args []string) lister[anytype.Object] {
+			return sc.List(args[0]).View(args[1]).Objects()
+		},
+		objectTable),
 }
 
-// listsAddCmd represents the lists add command
 var listsAddCmd = &cobra.Command{
-	Use:   "add [spaceID|spaceName] [listID] [objectIDs...]",
+	Use:   "add <list-id> <object-id>...",
 	Short: "Add objects to a list",
-	Long:  `Add one or more objects to a list in an Anytype space.`,
-	Args:  cobra.MinimumNArgs(3),
-	Run: func(cmd *cobra.Command, args []string) {
-		if !auth.IsAuthenticated(cfg) {
-			fmt.Println("You are not authenticated. Please run 'anytype-cli auth' first.")
-			os.Exit(1)
+	Args:  cobra.MinimumNArgs(2),
+	RunE: inSpace(func(s *session, sc anytype.SpaceContext, args []string) error {
+		ids := args[1:]
+		if err := sc.List(args[0]).Objects().Add(s.ctx, ids); err != nil {
+			return err
 		}
-
-		spaceIdOrName := args[0]
-		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
-			os.Exit(1)
-		}
-		
-		listID := args[1]
-		objectIDs := args[2:]
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		anytypeClient := client.GetClient(cfg)
-		err = anytypeClient.Space(spaceID).List(listID).Objects().Add(ctx, objectIDs)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to add objects to list: %v\n", err)
-			os.Exit(1)
-		}
-
-		fmt.Printf("Successfully added %d object(s) to list %s\n", len(objectIDs), listID)
-		for i, id := range objectIDs {
-			fmt.Printf("  %d. %s\n", i+1, id)
-		}
-	},
+		return s.out.Print(ids, func(w io.Writer) {
+			fmt.Fprintf(w, "Added %d object(s) to list %s\n", len(ids), args[0])
+		})
+	}),
 }
 
-// listsRemoveCmd represents the lists remove command
 var listsRemoveCmd = &cobra.Command{
-	Use:   "remove [spaceID|spaceName] [listID] [objectID]",
+	Use:   "remove <list-id> <object-id>",
 	Short: "Remove an object from a list",
-	Long:  `Remove an object from a list in an Anytype space.`,
-	Args:  cobra.ExactArgs(3),
-	Run: func(cmd *cobra.Command, args []string) {
-		if !auth.IsAuthenticated(cfg) {
-			fmt.Println("You are not authenticated. Please run 'anytype-cli auth' first.")
-			os.Exit(1)
+	Args:  cobra.ExactArgs(2),
+	RunE: inSpace(func(s *session, sc anytype.SpaceContext, args []string) error {
+		if err := sc.List(args[0]).Object(args[1]).Remove(s.ctx); err != nil {
+			return err
 		}
-
-		spaceIdOrName := args[0]
-		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
-			os.Exit(1)
-		}
-		
-		listID := args[1]
-		objectID := args[2]
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		anytypeClient := client.GetClient(cfg)
-		err = anytypeClient.Space(spaceID).List(listID).Object(objectID).Remove(ctx)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to remove object from list: %v\n", err)
-			os.Exit(1)
-		}
-
-		fmt.Printf("Successfully removed object %s from list %s\n", objectID, listID)
-	},
+		return s.out.Print(args[1], func(w io.Writer) {
+			fmt.Fprintf(w, "Removed object %s from list %s\n", args[1], args[0])
+		})
+	}),
 }
 
 func init() {
 	rootCmd.AddCommand(listsCmd)
-	listsCmd.AddCommand(listsViewsCmd)
-	listsCmd.AddCommand(listsObjectsCmd)
-	listsCmd.AddCommand(listsAddCmd)
-	listsCmd.AddCommand(listsRemoveCmd)
+	listsCmd.AddCommand(listsViewsCmd, listsObjectsCmd, listsAddCmd, listsRemoveCmd)
+	addListFlags(listsViewsCmd)
+	addListFlags(listsObjectsCmd)
 }

@@ -1,83 +1,96 @@
+// Package cmd wires cobra commands to the Anytype SDK.
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"strings"
+	"time"
 
-	"github.com/epheo/anytype-cli/internal/auth"
 	"github.com/epheo/anytype-cli/internal/config"
 	"github.com/epheo/anytype-cli/internal/output"
+	"github.com/epheo/anytype-go"
 	"github.com/spf13/cobra"
 )
 
 var (
-	cfg          *config.Config
-	cfgFile      string
-	baseURL      string
-	verbose      bool
-	outputFormat string
+	flagConfig  string
+	flagBaseURL string
+	flagOutput  string
+	flagSpace   string
+	flagTimeout time.Duration
 )
 
-// rootCmd represents the base command when called without any subcommands
+var errNotAuthenticated = errors.New("not authenticated, run 'anytype-cli auth' first")
+
 var rootCmd = &cobra.Command{
 	Use:   "anytype-cli",
-	Short: "A comprehensive CLI for interacting with Anytype",
-	Long: `anytype-cli is a command line tool for interacting with Anytype
-	
-This CLI allows you to manage spaces, objects, and perform searches in Anytype,
-all from your terminal using the Anytype-Go SDK.`,
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		// Skip auth check for these commands
-		if cmd.Name() == "auth" || cmd.Name() == "version" || cmd.Name() == "help" {
-			return
-		}
+	Short: "Command line client for the Anytype local API",
+	Long: `anytype-cli manages spaces, objects, types, properties, tags, lists,
+templates, and members of a locally running Anytype app.
 
-		// Parent command check - if this is a parent command, skip the auth check
-		// as the actual subcommand will do the check
-		if cmd.HasSubCommands() && len(args) == 0 {
-			return
+Commands that work inside a space take it from --space, then ` + config.EnvSpace + `,
+then the default_space set with 'anytype-cli config set default-space'.
+A space may be given by ID or by name.`,
+	SilenceUsage:  true,
+	SilenceErrors: true,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		if _, err := output.ParseFormat(flagOutput); err != nil {
+			return err
 		}
-
-		// Check if authenticated (except for auth command)
-		if !auth.IsAuthenticated(cfg) {
-			fmt.Println("Error: You are not authenticated. Run 'anytype-cli auth' first.")
-			os.Exit(1)
+		if !needsAuth(cmd) {
+			return nil
 		}
+		cfg, err := loadConfig()
+		if err != nil {
+			return err
+		}
+		if !cfg.Authenticated() {
+			return errNotAuthenticated
+		}
+		return nil
 	},
 }
 
-// Execute adds all child commands to the root command and sets flags appropriately.
+// needsAuth exempts commands that must work before login, and cobra's
+// hidden "__complete" helpers so shell completion never prints errors.
+func needsAuth(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		switch c.Name() {
+		case "auth", "version", "help", "completion", "config":
+			return false
+		}
+		if strings.HasPrefix(c.Name(), "__") {
+			return false
+		}
+	}
+	return true
+}
+
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, "Error:", describe(err))
 		os.Exit(1)
 	}
+}
+
+// describe keeps the API's own message but drops the HTTP framing.
+func describe(err error) string {
+	var apiErr *anytype.APIError
+	if errors.As(err, &apiErr) {
+		prefix := strings.TrimSuffix(err.Error(), apiErr.Error())
+		return fmt.Sprintf("%s%s (HTTP %d)", prefix, apiErr.Message, apiErr.Status)
+	}
+	return err.Error()
 }
 
 func init() {
-	cobra.OnInitialize(initConfig)
-
-	// Global flags
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.anytype-cli/config.yaml)")
-	rootCmd.PersistentFlags().StringVar(&baseURL, "base-url", "", "Anytype API base URL (default is http://localhost:31009)")
-	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable verbose output")
-	rootCmd.PersistentFlags().StringVarP(&outputFormat, "output", "o", "table",
-		fmt.Sprintf("output format (%s, %s, %s)", output.FormatTable, output.FormatJSON, output.FormatYAML))
-}
-
-// initConfig reads in config file and ENV variables if set
-func initConfig() {
-	var err error
-
-	// Load config from file or create a default one
-	cfg, err = config.LoadConfig()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Override config from command-line flags
-	if baseURL != "" {
-		cfg.BaseURL = baseURL
-	}
+	pf := rootCmd.PersistentFlags()
+	pf.StringVar(&flagConfig, "config", "", "config file (default ~/.anytype-cli/config.yaml)")
+	pf.StringVar(&flagBaseURL, "base-url", "", "Anytype API base URL (default "+config.DefaultBaseURL+", env "+config.EnvBaseURL+")")
+	pf.StringVarP(&flagOutput, "output", "o", string(output.FormatTable), "output format: table, json, yaml")
+	pf.StringVarP(&flagSpace, "space", "s", "", "space ID or name (env "+config.EnvSpace+", or config default_space)")
+	pf.DurationVar(&flagTimeout, "timeout", 30*time.Second, "timeout for each API call")
+	_ = rootCmd.RegisterFlagCompletionFunc("space", completeSpaceFlag)
 }
