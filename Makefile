@@ -1,60 +1,37 @@
-.PHONY: build install clean test
+.PHONY: all build install run clean test lint release
 
-# Binary name
-BINARY_NAME=anytype-cli
+BINARY   := anytype-cli
+BUILD_DIR := bin
+MODULE   := github.com/epheo/anytype-cli
+VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS  := -s -w -X $(MODULE)/cmd.version=$(VERSION)
 
-# Go parameters
-GOCMD=go
-GOBUILD=$(GOCMD) build
-GOTEST=$(GOCMD) test
-GOGET=$(GOCMD) get
-GOCLEAN=$(GOCMD) clean
-GOINSTALL=$(GOCMD) install
-GOMOD=$(GOCMD) mod
-GORUN=$(GOCMD) run
-
-# Build directory
-BUILD_DIR=bin
-
-# Output binary
-OUTPUT=$(BUILD_DIR)/$(BINARY_NAME)
-
-# Default target
 all: build
 
-# Init project 
-init:
+build:
 	mkdir -p $(BUILD_DIR)
-	$(GOMOD) tidy
+	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) .
 
-# Build binary
-build: init
-	$(GOBUILD) -o $(OUTPUT) -v
-
-# Install binary
 install: build
-	install -m755 $(OUTPUT) /usr/local/bin/$(BINARY_NAME)
+	install -m755 $(BUILD_DIR)/$(BINARY) /usr/local/bin/$(BINARY)
 
-# Run the application
 run:
-	$(GORUN) main.go
+	go run -ldflags "$(LDFLAGS)" . $(ARGS)
 
-# Clean build artifacts
+test:
+	go test ./...
+
+lint:
+	gofmt -l .
+	go vet ./...
+
 clean:
-	$(GOCLEAN)
 	rm -rf $(BUILD_DIR)
 
-# Run tests
-test:
-	$(GOTEST) -v ./...
-
-# Build binaries for multiple platforms
-release: init
-	# Linux
-	GOOS=linux GOARCH=amd64 $(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 -v
-	GOOS=linux GOARCH=arm64 $(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 -v
-	# MacOS
-	GOOS=darwin GOARCH=amd64 $(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 -v
-	GOOS=darwin GOARCH=arm64 $(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 -v
-	# Windows
-	GOOS=windows GOARCH=amd64 $(GOBUILD) -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe -v
+# Cross-compile release binaries.
+PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
+release:
+	mkdir -p $(BUILD_DIR)
+	$(foreach p,$(PLATFORMS),\
+		GOOS=$(word 1,$(subst /, ,$(p))) GOARCH=$(word 2,$(subst /, ,$(p))) \
+		go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY)-$(subst /,-,$(p))$(if $(findstring windows,$(p)),.exe,) . ;)

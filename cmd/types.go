@@ -1,286 +1,221 @@
 package cmd
 
 import (
-	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"os"
-	"time"
+	"io"
+	"strconv"
+	"strings"
 
-	"github.com/epheo/anytype-cli/internal/auth"
-	"github.com/epheo/anytype-cli/internal/client"
 	"github.com/epheo/anytype-cli/internal/output"
-	"github.com/epheo/anytype-cli/internal/spaces"
+	"github.com/epheo/anytype-go"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
-// typesCmd represents the types command
+var typeLayouts = []anytype.TypeLayout{
+	anytype.TypeLayoutBasic, anytype.TypeLayoutProfile, anytype.TypeLayoutAction, anytype.TypeLayoutNote,
+}
+
 var typesCmd = &cobra.Command{
 	Use:   "types",
-	Short: "Manage object types",
-	Long:  `List and get information about object types in an Anytype space.`,
+	Short: "Manage object types in the current space",
 }
 
-// typesListCmd represents the types list command
 var typesListCmd = &cobra.Command{
-	Use:   "list [spaceID|spaceName]",
-	Short: "List all object types in a space",
-	Long:  `List all available object types in the specified Anytype space.`,
-	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		if !auth.IsAuthenticated(cfg) {
-			fmt.Println("You are not authenticated. Please run 'anytype-cli auth' first.")
-			os.Exit(1)
-		}
-
-		spaceIdOrName := args[0]
-		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
-			os.Exit(1)
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		anytypeClient := client.GetClient(cfg)
-		types, err := anytypeClient.Space(spaceID).Types().List(ctx)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to list object types: %v\n", err)
-			os.Exit(1)
-		}
-
-		switch outputFormat {
-		case "json":
-			jsonOutput, err := json.MarshalIndent(types, "", "  ")
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to format output: %v\n", err)
-				os.Exit(1)
+	Use:   "list",
+	Short: "List types",
+	Args:  cobra.NoArgs,
+	RunE: listInSpace(
+		func(sc anytype.SpaceContext, _ []string) lister[anytype.Type] { return sc.Types() },
+		func(items []anytype.Type) *output.Table {
+			t := output.NewTable("ID", "KEY", "NAME", "LAYOUT", "ARCHIVED")
+			for _, ty := range items {
+				t.Row(ty.ID, ty.Key, ty.Name, ty.Layout, strconv.FormatBool(ty.Archived))
 			}
-			fmt.Println(string(jsonOutput))
-		case "yaml":
-			yamlOutput, err := yaml.Marshal(types)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to format output: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Println(string(yamlOutput))
-		default:
-			// Table format with dynamic column widths
-			table := output.NewTable([]string{"KEY", "NAME", "LAYOUT", "DESCRIPTION"})
-			for _, typ := range types {
-				table.AddRow([]string{typ.Key, typ.Name, typ.RecommendedLayout, typ.Description})
-			}
-			fmt.Print(table.String())
-			fmt.Printf("\nTotal types: %d\n", len(types))
-		}
-	},
+			return t
+		}),
 }
 
-// typesGetCmd represents the types get command
+// resolveType accepts a key, a display name, or an ID. Key and name come
+// first because they are matched against the list; the API answers 500, not
+// 404, for an unknown ID, so a direct GET cannot be used to probe.
+func resolveType(s *session, sc anytype.SpaceContext, arg string) (*anytype.Type, error) {
+	ty, err := sc.Types().Get(s.ctx, arg)
+	if err == nil {
+		return ty, nil
+	}
+	if !errors.Is(err, anytype.ErrNotFound) {
+		return nil, err
+	}
+	key, err := sc.Types().GetKeyByName(s.ctx, arg)
+	if err == nil {
+		return sc.Types().Get(s.ctx, key)
+	}
+	if !errors.Is(err, anytype.ErrNotFound) {
+		return nil, err
+	}
+	resp, err := sc.Type(arg).Get(s.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("type %q: no key or name matches, and lookup by ID failed: %w", arg, err)
+	}
+	return &resp.Type, nil
+}
+
 var typesGetCmd = &cobra.Command{
-	Use:   "get [spaceID|spaceName] [typeID]",
-	Short: "Get details of a specific object type",
-	Long:  `Retrieve detailed information about a specific object type in an Anytype space.`,
-	Args:  cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
-		if !auth.IsAuthenticated(cfg) {
-			fmt.Println("You are not authenticated. Please run 'anytype-cli auth' first.")
-			os.Exit(1)
-		}
-
-		spaceIdOrName := args[0]
-		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
+	Use:   "get <type>",
+	Short: "Show one type by ID, key, or name",
+	Args:  cobra.ExactArgs(1),
+	RunE: inSpace(func(s *session, sc anytype.SpaceContext, args []string) error {
+		ty, err := resolveType(s, sc, args[0])
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
-			os.Exit(1)
+			return err
 		}
+		return s.out.Print(ty, func(w io.Writer) { writeType(w, ty) })
+	}),
+}
 
-		typeID := args[1]
+func writeType(w io.Writer, ty *anytype.Type) {
+	output.NewDetails().
+		Add("ID", ty.ID).
+		Add("Key", ty.Key).
+		Add("Name", ty.Name).
+		AddIf("Plural Name", ty.PluralName).
+		Add("Layout", ty.Layout).
+		Add("Archived", strconv.FormatBool(ty.Archived)).
+		AddIf("Icon", output.Icon(ty.Icon)).
+		Write(w)
+	if len(ty.Properties) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "\nProperties")
+	t := output.NewTable("KEY", "NAME", "FORMAT")
+	for _, p := range ty.Properties {
+		t.Row(p.Key, p.Name, string(p.Format))
+	}
+	t.Write(w)
+}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+// parsePropertyDefs parses "key:name:format"; an empty name defaults to the key.
+func parsePropertyDefs(specs []string) ([]anytype.PropertyDefinition, error) {
+	defs := make([]anytype.PropertyDefinition, 0, len(specs))
+	for _, spec := range specs {
+		parts := strings.SplitN(spec, ":", 3)
+		if len(parts) != 3 || parts[0] == "" || parts[2] == "" {
+			return nil, fmt.Errorf("expected key:name:format, got %q", spec)
+		}
+		name := parts[1]
+		if name == "" {
+			name = parts[0]
+		}
+		defs = append(defs, anytype.PropertyDefinition{Key: parts[0], Name: name, Format: anytype.PropertyFormat(parts[2])})
+	}
+	return defs, nil
+}
 
-		anytypeClient := client.GetClient(cfg)
-		resp, err := anytypeClient.Space(spaceID).Type(typeID).Get(ctx)
+func typeRequestFromFlags(cmd *cobra.Command) (anytype.CreateTypeRequest, error) {
+	f := cmd.Flags()
+	req := anytype.CreateTypeRequest{Icon: iconFlag(cmd)}
+	req.Key, _ = f.GetString("key")
+	req.Name, _ = f.GetString("name")
+	req.PluralName, _ = f.GetString("plural")
+	layout, _ := f.GetString("layout")
+	req.Layout = anytype.TypeLayout(layout)
+	specs, _ := f.GetStringArray("property")
+	defs, err := parsePropertyDefs(specs)
+	if err != nil {
+		return req, err
+	}
+	req.Properties = defs
+	return req, nil
+}
+
+var typesCreateCmd = &cobra.Command{
+	Use:   "create",
+	Short: "Create a type",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		req, err := typeRequestFromFlags(cmd)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to get type details: %v\n", err)
-			os.Exit(1)
+			return err
 		}
-
-		switch outputFormat {
-		case "json":
-			jsonOutput, err := json.MarshalIndent(resp.Type, "", "  ")
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to format output: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Println(string(jsonOutput))
-		case "yaml":
-			yamlOutput, err := yaml.Marshal(resp.Type)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to format output: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Println(string(yamlOutput))
-		default:
-			// Detailed output
-			typ := resp.Type
-			fmt.Println("TYPE DETAILS")
-			fmt.Println("------------")
-			fmt.Printf("Key: %s\n", typ.Key)
-			fmt.Printf("Name: %s\n", typ.Name)
-			fmt.Printf("Description: %s\n", typ.Description)
-			fmt.Printf("Layout: %s\n", typ.Layout)
-			fmt.Printf("Recommended Layout: %s\n", typ.RecommendedLayout)
-			fmt.Printf("Is Archived: %v\n", typ.IsArchived)
-			fmt.Printf("Is Hidden: %v\n", typ.IsHidden)
-
-			if len(typ.PropertyDefinitions) > 0 {
-				fmt.Println("\nPROPERTY DEFINITIONS")
-				fmt.Println("-------------------")
-				fmt.Println("KEY                    NAME                   FORMAT")
-				fmt.Println("---------------------- ---------------------- ----------------")
-				for _, prop := range typ.PropertyDefinitions {
-					fmt.Printf("%-20s  %-20s  %-12s\n",
-						output.Truncate(prop.Key, 20),
-						output.Truncate(prop.Name, 20),
-						output.Truncate(prop.Format, 12))
-				}
-			}
+		if req.PluralName == "" {
+			req.PluralName = req.Name + "s"
 		}
+		return inSpace(func(s *session, sc anytype.SpaceContext, _ []string) error {
+			resp, err := sc.Types().Create(s.ctx, req)
+			if err != nil {
+				return err
+			}
+			return printCreated(s.out, resp.Type, "Type", resp.Type.ID, resp.Type.Key)
+		})(cmd, args)
 	},
 }
 
-// templatesListCmd represents the templates list command
-var templatesListCmd = &cobra.Command{
-	Use:   "templates [spaceID|spaceName] [typeID]",
-	Short: "List templates for an object type",
-	Long:  `List all available templates for the specified object type in an Anytype space.`,
-	Args:  cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
-		if !auth.IsAuthenticated(cfg) {
-			fmt.Println("You are not authenticated. Please run 'anytype-cli auth' first.")
-			os.Exit(1)
-		}
-
-		spaceIdOrName := args[0]
-		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
+var typesUpdateCmd = &cobra.Command{
+	Use:   "update <type>",
+	Short: "Change a type's name, layout, icon, or properties",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		c, err := typeRequestFromFlags(cmd)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
-			os.Exit(1)
+			return err
 		}
-
-		typeID := args[1]
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		anytypeClient := client.GetClient(cfg)
-		templates, err := anytypeClient.Space(spaceID).Type(typeID).Templates().List(ctx)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to list templates: %v\n", err)
-			os.Exit(1)
+		req := anytype.UpdateTypeRequest{
+			Key: c.Key, Name: c.Name, Icon: c.Icon, Layout: c.Layout,
+			PluralName: c.PluralName, Properties: c.Properties,
 		}
-
-		switch outputFormat {
-		case "json":
-			jsonOutput, err := json.MarshalIndent(templates, "", "  ")
+		if req.Key == "" && req.Name == "" && req.Icon == nil && req.Layout == "" && req.PluralName == "" && len(req.Properties) == 0 {
+			return errNothingToUpdate
+		}
+		return inSpace(func(s *session, sc anytype.SpaceContext, args []string) error {
+			ty, err := resolveType(s, sc, args[0])
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to format output: %v\n", err)
-				os.Exit(1)
+				return err
 			}
-			fmt.Println(string(jsonOutput))
-		case "yaml":
-			yamlOutput, err := yaml.Marshal(templates)
+			resp, err := sc.Type(ty.ID).Update(s.ctx, req)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to format output: %v\n", err)
-				os.Exit(1)
+				return err
 			}
-			fmt.Println(string(yamlOutput))
-		default:
-			// Table format with dynamic column widths
-			table := output.NewTable([]string{"TEMPLATE ID", "NAME", "ARCHIVED"})
-			for _, template := range templates {
-				table.AddRow([]string{template.ID, template.Name, fmt.Sprintf("%v", template.Archived)})
-			}
-			fmt.Print(table.String())
-			fmt.Printf("\nTotal templates: %d\n", len(templates))
-		}
+			return s.out.Print(resp.Type, func(w io.Writer) { writeType(w, &resp.Type) })
+		})(cmd, args)
 	},
 }
 
-// templatesGetCmd represents the templates get command
-var templatesGetCmd = &cobra.Command{
-	Use:   "template-get [spaceID|spaceName] [typeID] [templateID]",
-	Short: "Get details of a specific template",
-	Long:  `Retrieve detailed information about a specific template for an object type.`,
-	Args:  cobra.ExactArgs(3),
-	Run: func(cmd *cobra.Command, args []string) {
-		if !auth.IsAuthenticated(cfg) {
-			fmt.Println("You are not authenticated. Please run 'anytype-cli auth' first.")
-			os.Exit(1)
-		}
-
-		spaceIdOrName := args[0]
-		spaceID, err := spaces.ResolveSpace(cfg, spaceIdOrName)
+var typesDeleteCmd = &cobra.Command{
+	Use:   "delete <type>",
+	Short: "Archive a type",
+	Args:  cobra.ExactArgs(1),
+	RunE: inSpace(func(s *session, sc anytype.SpaceContext, args []string) error {
+		ty, err := resolveType(s, sc, args[0])
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to resolve space: %v\n", err)
-			os.Exit(1)
+			return err
 		}
-
-		typeID := args[1]
-		templateID := args[2]
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		anytypeClient := client.GetClient(cfg)
-		resp, err := anytypeClient.Space(spaceID).Type(typeID).Template(templateID).Get(ctx)
+		resp, err := sc.Type(ty.ID).Delete(s.ctx)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to get template details: %v\n", err)
-			os.Exit(1)
+			return err
 		}
+		return printArchived(s.out, resp.Type, "Type", resp.Type.ID, resp.Type.Key)
+	}),
+}
 
-		switch outputFormat {
-		case "json":
-			jsonOutput, err := json.MarshalIndent(resp.Template, "", "  ")
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to format output: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Println(string(jsonOutput))
-		case "yaml":
-			yamlOutput, err := yaml.Marshal(resp.Template)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to format output: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Println(string(yamlOutput))
-		default:
-			// Detailed output
-			template := resp.Template
-			fmt.Println("TEMPLATE DETAILS")
-			fmt.Println("----------------")
-			fmt.Printf("ID: %s\n", template.ID)
-			fmt.Printf("Name: %s\n", template.Name)
-			fmt.Printf("Archived: %v\n", template.Archived)
-			if template.Icon != nil {
-				if template.Icon.Format == "emoji" {
-					fmt.Printf("Icon: %s\n", template.Icon.Emoji)
-				} else {
-					fmt.Printf("Icon: %s (%s)\n", template.Icon.Name, template.Icon.Format)
-				}
-			}
-		}
-	},
+func addTypeFlags(cmd *cobra.Command, create bool) {
+	f := cmd.Flags()
+	f.String("key", "", "type key")
+	f.String("name", "", "type name")
+	f.String("plural", "", "plural name (default: name + s)")
+	f.String("layout", "", "layout: "+joinConsts(typeLayouts...))
+	f.String("icon", "", "emoji icon")
+	f.StringArray("property", nil, "property as key:name:format, repeatable")
+	if create {
+		_ = cmd.MarkFlagRequired("name")
+		_ = cmd.MarkFlagRequired("layout")
+	}
 }
 
 func init() {
 	rootCmd.AddCommand(typesCmd)
-	typesCmd.AddCommand(typesListCmd)
-	typesCmd.AddCommand(typesGetCmd)
-	typesCmd.AddCommand(templatesListCmd)
-	typesCmd.AddCommand(templatesGetCmd)
+	typesCmd.AddCommand(typesListCmd, typesGetCmd, typesCreateCmd, typesUpdateCmd, typesDeleteCmd)
+	addListFlags(typesListCmd)
+	addTypeFlags(typesCreateCmd, true)
+	addTypeFlags(typesUpdateCmd, false)
 }
